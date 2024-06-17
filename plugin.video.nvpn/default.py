@@ -84,7 +84,6 @@ def login():
         verify=cert_path,
     )
     if response.status_code == 200:
-        xbmc.log(response.text, xbmc.LOGERROR)
         error_message = re.search(
             r'<div id="errorMsgDIV">\s*<span class="errorMessage">(.+?)</span>',
             response.text,
@@ -198,7 +197,6 @@ def play(channel):
         )
         exit()
     files = re.findall(r"""['"]file['"]\s*:\s*['"]([^'"]+)""", r.text)
-    xbmc.log(r.text, xbmc.LOGERROR)
     if files:
         files = [file for file in files if "index.m3u8" in file]
         if not files:
