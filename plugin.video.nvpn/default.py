@@ -12,6 +12,7 @@ import xbmcplugin
 import xbmcvfs
 from Cryptodome.Cipher import PKCS1_v1_5
 from Cryptodome.PublicKey import RSA
+import inputstreamhelper
 
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 GLS/100.10.9939.100"
 addon = xbmcaddon.Addon()
@@ -259,19 +260,28 @@ def play(channel):
                     "inputstream.adaptive.stream_headers", urlencode(headers)
                 )
             if "manifest.mpd" in url and widevine_custom_data:
-                list_item.setProperty(
-                    "inputstream.adaptive.license_type", "com.widevine.alpha"
-                )
-                license_headers = {
-                    "User-Agent": user_agent,
-                    "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
-                    "Content-Type": "",
-                    "customdata": widevine_custom_data,
-                }
-                list_item.setProperty(
-                    "inputstream.adaptive.license_key",
-                    f"https://wv-keyos.licensekeyserver.com/|{urlencode(license_headers)}|R{{SSM}}|",
-                )
+                is_helper = inputstreamhelper.Helper("mpd", "com.widevine.alpha")
+                if is_helper.check_inputstream():
+                    list_item.setProperty(
+                        "inputstream.adaptive.license_type", "com.widevine.alpha"
+                    )
+                    license_headers = {
+                        "User-Agent": user_agent,
+                        "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+                        "Content-Type": "",
+                        "customdata": widevine_custom_data,
+                    }
+                    list_item.setProperty(
+                        "inputstream.adaptive.license_key",
+                        f"https://wv-keyos.licensekeyserver.com/|{urlencode(license_headers)}|R{{SSM}}|",
+                    )
+                else:
+                    dialog = xbmcgui.Dialog()
+                    dialog.ok(
+                        "Hiba",
+                        "A Widevine támogatás hiányzik, ellenőrizd, hogy van-e aktív CDM az Inputstream Helper beállításokban.",
+                    )
+                    exit()
         if is_proxy:
             service = web_service.main_service(addon)
             monitor = xbmc.Monitor()
