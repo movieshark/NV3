@@ -320,7 +320,7 @@ def play(channel):
         dialog = xbmcgui.Dialog()
         dialog.ok(
             "Hiba",
-            "Nem található nem támogatott stream.[CR]Ha nincs fent az [I]inputstream.adaptive[/I] kiegészítő, a telepítése segíthet több stream elérésében.",
+            "Nem található támogatott stream.[CR]Ha nincs fent az [I]inputstream.adaptive[/I] kiegészítő, a telepítése segíthet több stream elérésében.",
         )
         exit()
 
