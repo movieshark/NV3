@@ -31,3 +31,19 @@ msgstr ""
 msgctxt "#30004"
 msgid "Password"
 msgstr ""
+
+msgctxt "#30005"
+msgid "Web Bind Address"
+msgstr ""
+
+msgctxt "#30006"
+msgid "Web Port"
+msgstr ""
+
+msgctxt "#30007"
+msgid "Use Inputstream Adaptive for HLS when available"
+msgstr ""
+
+msgctxt "#30008"
+msgid "Cookies"
+msgstr ""

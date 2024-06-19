@@ -1,9 +1,10 @@
 import re
-from json import dumps, loads
+from json import JSONDecodeError, dumps, loads
 from sys import argv
 from urllib.parse import parse_qsl, urlencode
 
 import requests
+import web_service
 import xbmc
 import xbmcaddon
 import xbmcgui
@@ -162,6 +163,15 @@ def main_menu():
 
 
 def play(channel):
+    """Plays the selected channel using either the inputstream.adaptive or the built-in player.
+
+    Playlist extraction is a hack as the HTML source has a JS object with JS functions. Couldn't
+     completely parse it with regex, so I had to add a closing bracket and brace to make it a valid JSON.
+     Might break in the future.
+
+    ISA cannot handle bad certificates so we use a proxy service to bypass it. The service is started
+     whenever a playback starts on a thread and is stopped when the playback stops.
+    """
     cookies = loads(addon.getSetting("cookies"))
     params = {"noflash": "yes", "video": channel}
     r = requests.get(
@@ -196,47 +206,112 @@ def play(channel):
             f"Ismeretlen hiba történt a lejátszás során, kód: {r.status_code}",
         )
         exit()
-    files = re.findall(r"""['"]file['"]\s*:\s*['"]([^'"]+)""", r.text)
-    if files:
-        files = [file for file in files if "index.m3u8" in file]
-        if not files:
-            dialog = xbmcgui.Dialog()
-            dialog.ok("Hiba", "Nem található nem DRM védett stream.")
-            exit()
-        url = files[0].replace(r"\/", "/")
+    playlist = re.search(r"""['"]playlist['"]\s*:\s*(\[[^\]]+\])""", r.text).group(1)
+    try:
+        playlist = loads(playlist)
+    except JSONDecodeError:
+        playlist = loads(playlist + "}}}]")
+    url = None
+    for item in playlist:
+        if item["type"] == "hls" and "index.m3u8" in item["file"]:
+            url = item["file"]
+            break
+        elif item["type"] == "dash" and "manifest.mpd" in item["file"]:
+            url = item["file"]
+            break
+    if url:
         headers = {
             "User-Agent": user_agent,
             "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
             "Cookie": "; ".join([f"{k}={v}" for k, v in cookies.items()]),
-            "verifypeer": "false",
         }
-        # ISA doesn't seem to handle verifypeer=false on chunks, so we don't support it yet
-        """kodi_version = int(xbmc.getInfoLabel("System.BuildVersion").split(".")[0])
-        if kodi_version < 20:
-            url = url + "|" + urlencode(headers)
+        kodi_version = int(xbmc.getInfoLabel("System.BuildVersion").split(".")[0])
+        is_proxy = False
+        if (
+            kodi_version < 20
+            or not xbmc.getCondVisibility("System.HasAddon(inputstream.adaptive)")
+            or ("index.m3u8" in url and not addon.getSettingBool("useisa"))
+        ):
+            url += "|" + urlencode(headers)
         else:
-            url += "|verifypeer=false"
+            headers = {
+                "h": dumps(headers),
+            }
+            url = f"http://{addon.getSetting('webaddress')}:{addon.getSetting('webport')}/proxy/{url}"
+            is_proxy = True
         list_item = xbmcgui.ListItem(path=url)
-        if xbmc.getCondVisibility("System.HasAddon(inputstream.adaptive)"):
+        if xbmc.getCondVisibility("System.HasAddon(inputstream.adaptive)") and (
+            "index.m3u8" in url and addon.getSettingBool("useisa")
+        ):
             list_item.setProperty("inputstream", "inputstream.adaptive")
-            if kodi_version < 20:
+            if kodi_version < 20 and "index.m3u8" in url:
                 list_item.setProperty("inputstream.adaptive.manifest_type", "hls")
-            else:
+            elif kodi_version < 20 and "manifest.mpd" in url:
+                list_item.setProperty("inputstream.adaptive.manifest_type", "mpd")
+            widevine_custom_data = (
+                item.get("drm", {}).get("widevine", {}).get("customData")
+            )
+            if kodi_version >= 19:
                 list_item.setProperty(
                     "inputstream.adaptive.manifest_headers", urlencode(headers)
                 )
-                # see https://github.com/xbmc/inputstream.adaptive/wiki/Integration#inputstreamadaptivestream_headers
-                headers["Cookie"] = quote(headers["Cookie"])
                 list_item.setProperty(
                     "inputstream.adaptive.stream_headers", urlencode(headers)
                 )
-        """
-        url += "|" + urlencode(headers)
-        list_item = xbmcgui.ListItem(path=url)
+            if "manifest.mpd" in url and widevine_custom_data:
+                list_item.setProperty(
+                    "inputstream.adaptive.license_type", "com.widevine.alpha"
+                )
+                license_headers = {
+                    "User-Agent": user_agent,
+                    "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+                    "Content-Type": "",
+                    "customdata": widevine_custom_data,
+                }
+                list_item.setProperty(
+                    "inputstream.adaptive.license_key",
+                    f"https://wv-keyos.licensekeyserver.com/|{urlencode(license_headers)}|R{{SSM}}|",
+                )
+        if is_proxy:
+            service = web_service.main_service(addon)
+            monitor = xbmc.Monitor()
+            player = xbmc.Player()
         xbmcplugin.setResolvedUrl(int(argv[1]), True, list_item)
+        if is_proxy:
+            timeout = 0
+            while not player.isPlaying() and not monitor.abortRequested():
+                if timeout > 8:
+                    xbmc.log(
+                        "Playback did not start in time, stopping the service",
+                        xbmc.LOGINFO,
+                    )
+                    if service and service.is_alive():
+                        service.stop()
+                        try:
+                            service.join()
+                        except RuntimeError:
+                            pass
+                        return
+                timeout += 1
+                monitor.waitForAbort(1)
+            while not monitor.abortRequested() and player.isPlaying():
+                if monitor.waitForAbort(1):
+                    break
+            if service and service.is_alive():
+                service.stop()
+                try:
+                    service.join()
+                except RuntimeError:
+                    pass
+                xbmc.log(
+                    f"[{addon.getAddonInfo('name')}] Web service stopped", xbmc.LOGINFO
+                )
     else:
         dialog = xbmcgui.Dialog()
-        dialog.ok("Hiba", "Nem található nem DRM védett stream.")
+        dialog.ok(
+            "Hiba",
+            "Nem található nem támogatott stream.[CR]Ha nincs fent az [I]inputstream.adaptive[/I] kiegészítő, a telepítése segíthet több stream elérésében.",
+        )
         exit()
 
 

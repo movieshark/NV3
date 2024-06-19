@@ -24,6 +24,42 @@
                         <hidden>true</hidden>
                     </control>
                 </setting>
+                <setting id="webaddress" label="30005" type="string">
+                    <level>0</level>
+                    <default>127.0.0.1</default>
+                    <constraints>
+                        <allowempty>false</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30005</heading>
+                    </control>
+                </setting>
+                <setting id="webport" label="30006" type="integer">
+                    <level>0</level>
+                    <default>5678</default>
+                    <constraints>
+                        <minimum>1024</minimum>
+                        <step>1</step>
+                        <maximum>65535</maximum>
+                    </constraints>
+                    <control type="edit" format="integer">
+                        <heading>30006</heading>
+                    </control>
+                </setting>
+                <setting id="useisa" label="30007" type="boolean">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="cookies" label="30008" type="string">
+                    <level>0</level>
+                    <default></default>
+                    <enable>false</enable>
+                    <visible>false</visible>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                </setting>
             </group>
         </category>
     </section>
