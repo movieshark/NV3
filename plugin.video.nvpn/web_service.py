@@ -110,7 +110,7 @@ def proxy(url):
         In which case, ISA doesn't need to know the Content-Length in advance, it will stop
         reading the stream when it encounters the last (empty) chunk."""
 
-        for chunk in resp.iter_content(chunk_size=1024):
+        for chunk in resp.iter_content(chunk_size=None):
             data = bytes(f"{len(chunk):X}\r\n", "utf-8") + chunk + b"\r\n"
             yield data
         yield b"0\r\n\r\n"
