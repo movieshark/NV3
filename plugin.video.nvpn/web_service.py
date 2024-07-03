@@ -150,6 +150,7 @@ def main_service(addon: xbmcaddon.Addon) -> WebServerThread:
     cert_path = xbmcvfs.translatePath(
         addon.getAddonInfo("path") + "resources/assets/nvt_gov_hu.pem"
     )
+    xbmc.log(f"{handle} Cert path: {cert_path}", xbmc.LOGDEBUG)
     app.config["name"] = name
     app.config["welcome_text"] = welcome_text
     app.config["cert_path"] = cert_path
