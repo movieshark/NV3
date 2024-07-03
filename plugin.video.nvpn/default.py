@@ -233,6 +233,8 @@ def play(channel):
             or not xbmc.getCondVisibility("System.HasAddon(inputstream.adaptive)")
             or ("index.m3u8" in url and not addon.getSettingBool("useisa"))
         ):
+            # Kodi 19.5 on Windows didn't trust the certificate otherwise
+            headers["verifypeer"] = "false"
             url += "|" + urlencode(headers)
         else:
             headers = {
