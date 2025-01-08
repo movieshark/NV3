@@ -1,38 +1,24 @@
 import re
 from json import JSONDecodeError, dumps, loads
 from sys import argv
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urljoin
 
-import requests
+import inputstreamhelper
+import tls_handler
 import web_service
 import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcplugin
 import xbmcvfs
-from Cryptodome.Cipher import PKCS1_v1_5
-from Cryptodome.PublicKey import RSA
-import inputstreamhelper
+
+session = tls_handler.create_custom_session()
 
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 GLS/100.10.9939.100"
 addon = xbmcaddon.Addon()
 cert_path = xbmcvfs.translatePath(
-    addon.getAddonInfo("path") + "resources/assets/nvt_gov_hu.pem"
+    addon.getAddonInfo("path") + "resources/assets/nvpn_nvt_gov_hu.pem"
 )
-
-
-def encrypt_password(password, modulus, exponent):
-    """Encrypts the password using the given RSA public key.
-
-    Don't ask why the 0 byte at the end, seemingly the server
-     accepts it, but the original code does it this way.
-
-    Endianness swap is also necessary!
-    """
-    key = RSA.construct((int(modulus, 16), int(exponent, 16)))
-    cipher = PKCS1_v1_5.new(key)
-    ciphertext = cipher.encrypt(password.encode() + b"\x00")[::-1]
-    return ciphertext.hex()
 
 
 def login():
@@ -47,30 +33,22 @@ def login():
         )
         addon.openSettings()
         exit()
-    js_rsa = requests.get(
-        "https://vpn.nvt.gov.hu/Login/JS_RSA.js",
-        headers={"User-Agent": user_agent},
-        verify=cert_path,
-    ).text
-    modulus = re.search(r"var modulus = '(.+?)';", js_rsa).group(1)
-    exponent = re.search(r"var exponent = '(.+?)';", js_rsa).group(1)
     data = {
-        "selectedRealm": "ssl_vpn",
-        "loginType": "Standard",
-        "userName": username,
-        "pin": "",
-        "password": encrypt_password(password, modulus, exponent),
-        "HeightData": "",
+        "method": "OpenLDAP",
+        "uname": username,
+        "pwd": password,
+        "pwd1": "",
+        "pwd2": "",
     }
     headers = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        "Cookie": "CheckCookieSupport=1; CPCVPN_REQUESTED_URL=aHR0cHM6Ly92cG4ubnZ0Lmdvdi5odS9QVC9odHRwczovL200c3BvcnQuaHUv; CPCVPN_SELECTED_REALM=ssl_vpn",
-        "Origin": "https://vpn.nvt.gov.hu",
+        "Cookie": "user_locale=hu",
+        "Origin": "https://nvpn.nvt.gov.hu",
         "Pragma": "no-cache",
-        "Referer": "https://vpn.nvt.gov.hu/Login/Login",
+        "Referer": "https://nvpn.nvt.gov.hu/prx/000/http/localhost/login/index.html",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "same-origin",
@@ -78,32 +56,36 @@ def login():
         "Upgrade-Insecure-Requests": "1",
         "User-Agent": user_agent,
     }
-    response = requests.post(
-        "https://vpn.nvt.gov.hu/Login/Login",
+    response = session.post(
+        "https://nvpn.nvt.gov.hu/prx/000/http/localhost/login",
         headers=headers,
         data=data,
         allow_redirects=False,
         verify=cert_path,
     )
-    if response.status_code == 200:
-        error_message = re.search(
-            r'<div id="errorMsgDIV">\s*<span class="errorMessage">(.+?)</span>',
-            response.text,
+    if response.status_code == 302:
+        response_status = session.get(
+            "https://nvpn.nvt.gov.hu/prx/000/http/localhost/an_login.js",
+            headers=headers,
+            verify=cert_path,
         )
-        if error_message:
+        error_message = re.search(
+            r"""var _AN_str_errormsg_login = "(.*?)";""", response_status.text
+        )
+        if error_message and error_message.group(1):
             dialog = xbmcgui.Dialog()
             dialog.ok("Hiba", error_message.group(1))
             addon.openSettings()
             exit()
-    elif response.status_code in [301, 302]:
-        cookies = dumps(response.cookies.get_dict(), separators=(",", ":"))
-        addon.setSetting("cookies", str(cookies))
-        dialog = xbmcgui.Dialog()
-        dialog.notification(
-            "Sikeres bejelentkezés",
-            "Sikeresen bejelentkeztél a [I]VPN[/I] szolgáltatásba.",
-            sound=False,
-        )
+        else:
+            cookies = dumps(response.cookies.get_dict(), separators=(",", ":"))
+            addon.setSetting("cookies", str(cookies))
+            dialog = xbmcgui.Dialog()
+            dialog.notification(
+                "Sikeres bejelentkezés",
+                "Sikeresen bejelentkeztél a [I]VPN[/I] szolgáltatásba.",
+                sound=False,
+            )
     else:
         dialog = xbmcgui.Dialog()
         dialog.ok(
@@ -175,30 +157,30 @@ def play(channel):
     """
     cookies = loads(addon.getSetting("cookies"))
     params = {"noflash": "yes", "video": channel}
-    r = requests.get(
-        "https://vpn.nvt.gov.hu/PT/https://player.mediaklikk.hu/playernew/player.php",
+    r = session.get(
+        "https://nvpn.nvt.gov.hu/prx/000/https/player.mediaklikk.hu/playernew/player.php",
         params=params,
         cookies=cookies,
         headers={
             "User-Agent": user_agent,
-            "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+            "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
         },
-        verify=cert_path,
         allow_redirects=False,
+        verify=cert_path,
     )
     if r.status_code in [301, 302]:
         login()
         cookies = loads(addon.getSetting("cookies"))
-        r = requests.get(
-            "https://vpn.nvt.gov.hu/PT/https://player.mediaklikk.hu/playernew/player.php",
+        r = session.get(
+            "https://nvpn.nvt.gov.hu/prx/000/https/player.mediaklikk.hu/playernew/player.php",
             params=params,
             cookies=cookies,
             headers={
                 "User-Agent": user_agent,
-                "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+                "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
             },
-            verify=cert_path,
             allow_redirects=False,
+            verify=cert_path,
         )
     elif r.status_code != 200:
         dialog = xbmcgui.Dialog()
@@ -221,9 +203,10 @@ def play(channel):
             url = item["file"]
             break
     if url:
+        url = urljoin("https://nvpn.nvt.gov.hu", url)
         headers = {
             "User-Agent": user_agent,
-            "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+            "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
             "Cookie": "; ".join([f"{k}={v}" for k, v in cookies.items()]),
         }
         kodi_version = int(xbmc.getInfoLabel("System.BuildVersion").split(".")[0])
@@ -269,7 +252,7 @@ def play(channel):
                     )
                     license_headers = {
                         "User-Agent": user_agent,
-                        "Referer": "https://vpn.nvt.gov.hu/PT/https://mediaklikk.hu",
+                        "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
                         "Content-Type": "",
                         "customdata": widevine_custom_data,
                     }
