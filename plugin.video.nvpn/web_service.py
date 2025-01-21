@@ -5,13 +5,9 @@ from unicodedata import normalize
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
 import requests
-import tls_handler
 import xbmc
 import xbmcaddon
-import xbmcvfs
 from bottle import default_app, hook, request, response, route
-
-session = tls_handler.create_custom_session()
 
 
 class SilentWSGIRequestHandler(WSGIRequestHandler):
@@ -52,9 +48,7 @@ def proxy_head(url):
         return "No URL provided"
 
     try:
-        resp = session.head(
-            url, verify=request.app.config.get("cert_path"), headers=headers
-        )
+        resp = requests.head(url, headers=headers)
         response.set_header("Content-Type", resp.headers.get("Content-Type"))
         return ""
 
@@ -83,11 +77,10 @@ def proxy(url):
     xbmc.log(f"Headers: {headers}", xbmc.LOGDEBUG)
 
     try:
-        resp = session.get(
+        resp = requests.get(
             url,
             stream=True,
             headers=headers,
-            verify=request.app.config.get("cert_path"),
         )
         if "Content-Type" in resp.headers:
             response.set_header("Content-Type", resp.headers.get("Content-Type"))
@@ -150,15 +143,8 @@ def main_service(addon: xbmcaddon.Addon) -> WebServerThread:
     handle = f"[{name}]"
     app = default_app()
     welcome_text = f"{name} Web Service"
-    cert_path = xbmcvfs.translatePath(
-        f"special://home/addons/{addon.getAddonInfo('id')}/resources/assets/nvpn_nvt_gov_hu.pem"
-    )
-    xbmc.log(f"{handle} Cert path: {cert_path}", xbmc.LOGDEBUG)
-    if not xbmcvfs.exists(cert_path):
-        xbmc.log(f"{handle} Certificate not found", xbmc.LOGERROR)
     app.config["name"] = name
     app.config["welcome_text"] = welcome_text
-    app.config["cert_path"] = cert_path
     try:
         httpd = make_server(
             addon.getSetting("webaddress"),

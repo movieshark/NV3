@@ -1,24 +1,18 @@
 import re
 from json import JSONDecodeError, dumps, loads
 from sys import argv
-from urllib.parse import parse_qsl, urlencode, urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 import inputstreamhelper
-import tls_handler
+import requests
 import web_service
 import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcplugin
-import xbmcvfs
-
-session = tls_handler.create_custom_session()
 
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 GLS/100.10.9939.100"
 addon = xbmcaddon.Addon()
-cert_path = xbmcvfs.translatePath(
-    addon.getAddonInfo("path") + "resources/assets/nvpn_nvt_gov_hu.pem"
-)
 
 
 def login():
@@ -56,18 +50,16 @@ def login():
         "Upgrade-Insecure-Requests": "1",
         "User-Agent": user_agent,
     }
-    response = session.post(
+    response = requests.post(
         "https://nvpn.nvt.gov.hu/prx/000/http/localhost/login",
         headers=headers,
         data=data,
         allow_redirects=False,
-        verify=cert_path,
     )
     if response.status_code == 302:
-        response_status = session.get(
+        response_status = requests.get(
             "https://nvpn.nvt.gov.hu/prx/000/http/localhost/an_login.js",
             headers=headers,
-            verify=cert_path,
         )
         error_message = re.search(
             r"""var _AN_str_errormsg_login = "(.*?)";""", response_status.text
@@ -157,7 +149,7 @@ def play(channel):
     """
     cookies = loads(addon.getSetting("cookies"))
     params = {"noflash": "yes", "video": channel}
-    r = session.get(
+    r = requests.get(
         "https://nvpn.nvt.gov.hu/prx/000/https/player.mediaklikk.hu/playernew/player.php",
         params=params,
         cookies=cookies,
@@ -166,12 +158,11 @@ def play(channel):
             "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
         },
         allow_redirects=False,
-        verify=cert_path,
     )
     if r.status_code in [301, 302]:
         login()
         cookies = loads(addon.getSetting("cookies"))
-        r = session.get(
+        r = requests.get(
             "https://nvpn.nvt.gov.hu/prx/000/https/player.mediaklikk.hu/playernew/player.php",
             params=params,
             cookies=cookies,
@@ -180,7 +171,6 @@ def play(channel):
                 "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
             },
             allow_redirects=False,
-            verify=cert_path,
         )
     elif r.status_code != 200:
         dialog = xbmcgui.Dialog()
@@ -204,6 +194,9 @@ def play(channel):
             break
     if url:
         url = urljoin("https://nvpn.nvt.gov.hu", url)
+        if "nvpn.nvt.gov.hu" not in urlparse(url).netloc:
+            # probably a connectmedia url, we need to proxy it
+            url = f"https://nvpn.nvt.gov.hu/prx/000/{url.replace('https://', 'https/')}"
         headers = {
             "User-Agent": user_agent,
             "Referer": "https://nvpn.nvt.gov.hu/prx/000/https/mediaklikk.hu",
